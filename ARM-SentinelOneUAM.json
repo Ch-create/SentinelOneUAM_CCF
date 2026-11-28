@@ -1,0 +1,933 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "type": "string",
+            "minLength": 1,
+            "defaultValue": "[resourceGroup().location]",
+            "metadata": {
+                "description": "Not used, but needed to pass the arm-ttk test, 'Location-Should-Not-Be-Hardcoded'. Instead the `workspace-location` derived from the log analytics workspace is used."
+            }
+        },
+        "workspace-location": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "[concat('Region to deploy solution resources -- separate from location selection',parameters('location'))]"
+            }
+        },
+        "subscription": {
+            "defaultValue": "[last(split(subscription().id, '/'))]",
+            "type": "string",
+            "metadata": {
+                "description": "subscription id where Microsoft Sentinel is configured"
+            }
+        },
+        "resourceGroupName": {
+            "defaultValue": "[resourceGroup().name]",
+            "type": "string",
+            "metadata": {
+                "description": "resource group name where Microsoft Sentinel is configured"
+            }
+        },
+        "workspace": {
+            "defaultValue": "",
+            "type": "string",
+            "metadata": {
+                "description": "the log analytics workspace enabled for Microsoft Sentinel"
+            }
+        }
+    },
+    "variables": {
+        "workspaceResourceId": "[resourceId('microsoft.OperationalInsights/Workspaces', parameters('workspace'))]",
+        "_solutionName": "SentinelOne Unified Alerts", 
+        "_solutionVersion": "3.0.0", 
+        "_solutionAuthor": "Chenuka Abeysinghe", // Enter the name of the author
+        "_packageIcon": "<img src=\"{https://in.pinterest.com/pin/sentinelone-logo--787074472407925287/}\" width=\"75px\" height=\"75px\">", // Enter the http link for the logo. NOTE: This field is only recommended for Azure Global Cloud.
+        "_solutionId": "azuresentinel.azure-sentinel-solution-azuresentinel.azure-sentinel-SentinelOneUAM", // Enter a name for your solution with this format but exchange the 'MySolution' portion
+        "dataConnectorVersionConnectorDefinition": "1.0.0",
+        "dataConnectorVersionConnections": "1.0.0",
+        "_solutionTier": "Community", // This designates the appropriate support - all custom data connectors are "Community"
+        "_dataConnectorContentIdConnectorDefinition": "SentinelOneUAMConnector", // Enter a name for the connector
+        "dataConnectorTemplateNameConnectorDefinition": "[concat(parameters('workspace'),'-dc-',uniquestring(variables('_dataConnectorContentIdConnectorDefinition')))]",
+        "_dataConnectorContentIdConnections": "SentinelOneUAMAlertsConnections", // Enter a name for the connections this connector makes
+        "dataConnectorTemplateNameConnections": "[concat(parameters('workspace'),'-dc-',uniquestring(variables('_dataConnectorContentIdConnections')))]",
+        "_logAnalyticsTableId1": "SentinelOneUAM_CL" // Enter the custom table name - not needed if you are ingesting data into standard tables
+		// Enter more variables as needed "":""
+    },
+    // Next is the resources sections here
+    "resources": [
+        // resource section 1 - contentTemplates
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/providers/contentTemplates",
+            "apiVersion": "2023-04-01-preview",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/', variables('dataConnectorTemplateNameConnectorDefinition'), variables('dataConnectorVersionConnectorDefinition'))]",
+            "location": "[parameters('workspace-location')]",
+            "dependsOn": [
+                "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspace')), 'Microsoft.SecurityInsights/contentPackages', variables('_solutionId'))]"
+            ],
+            "properties": {
+                "contentId": "[variables('_dataConnectorContentIdConnectorDefinition')]",
+                "displayName": "[concat(variables('_solutionName'), variables('dataConnectorTemplateNameConnectorDefinition'))]",
+                "contentKind": "DataConnector",
+                "mainTemplate": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "[variables('dataConnectorVersionConnectorDefinition')]",
+                    "parameters": {},
+                    "variables": {},
+                    "resources": [
+                        {
+                            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/',concat('DataConnector-', variables('_dataConnectorContentIdConnectorDefinition')))]",
+                            "apiVersion": "2022-01-01-preview",
+                            "type": "Microsoft.OperationalInsights/workspaces/providers/metadata",
+                            "properties": {
+                                "parentId": "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspace')), 'Microsoft.SecurityInsights/dataConnectorDefinitions', variables('_dataConnectorContentIdConnectorDefinition'))]",
+                                "contentId": "[variables('_dataConnectorContentIdConnectorDefinition')]",
+                                "kind": "DataConnector",
+                                "version": "[variables('dataConnectorVersionConnectorDefinition')]",
+                                "source": {
+                                    "sourceId": "[variables('_solutionId')]",
+                                    "name": "[variables('_solutionName')]",
+                                    "kind": "Solution"
+                                },
+                                "author": {
+                                    "name": "[variables('_solutionAuthor')]"
+                                },
+                                "support": {
+                                    "name": "[variables('_solutionAuthor')]",
+                                    "tier": "[variables('_solutionTier')]"
+                                },
+                                "dependencies": {
+                                    "criteria": [
+                                        {
+                                            "version": "[variables('dataConnectorVersionConnections')]",
+                                            "contentId": "[variables('_dataConnectorContentIdConnections')]",
+                                            "kind": "ResourcesDataConnector"
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        {
+                            "name": "DCR-SentinelOne-UnifiedAlerts", // Enter your DCR name
+                            "apiVersion": "2021-09-01-preview",
+                            "type": "Microsoft.Insights/dataCollectionRules",
+                            "location": "[parameters('workspace-location')]",
+                            "kind": null,
+                            "properties": 
+							{ 
+                                // Enter your DCR properties here.
+                                //  Consider using these variables:
+                                "dataCollectionEndpointId": "[concat('/subscriptions/',parameters('subscription'),'/resourceGroups/',parameters('resourceGroupName'),'/providers/Microsoft.Insights/dataCollectionEndpoints/',parameters('workspace'))]",
+                                "streamDeclarations": {
+                                    "Custom-SentinelOneUAM_CL": {
+                                        "columns": [
+                                            {
+                                            "name": "id",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "externalId",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "name",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "description",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "detectedAt",
+                                            "type": "datetime"
+                                            },
+                                            {
+                                            "name": "createdAt",
+                                            "type": "datetime"
+                                            },
+                                            {
+                                            "name": "updatedAt",
+                                            "type": "datetime"
+                                            },
+                                            {
+                                            "name": "firstSeenAt",
+                                            "type": "datetime"
+                                            },
+                                            {
+                                            "name": "lastSeenAt",
+                                            "type": "datetime"
+                                            },
+                                            {
+                                            "name": "status",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "severity",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "analystVerdict",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "result",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "classification",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "confidenceLevel",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "attackSurfaces",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "labels",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "storylineId",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "primaryIndicatorType",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "ticketId",
+                                            "type": "string"
+                                            },
+                                            {
+                                            "name": "noteExists",
+                                            "type": "boolean"
+                                            },
+                                            {
+                                            "name": "dataSources",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "detectionSource",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "analytics",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "assignee",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "incident",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "resolveData",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "sloDetails",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "aiInvestigation",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "attackPathExists",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "attackPaths",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "availableActions",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "exclusionHashes",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "mitigationDetails",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "realTime",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "assets",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "detectionTime",
+                                            "type": "dynamic"
+                                            },
+                                            {
+                                            "name": "process",
+                                            "type": "dynamic"
+                                            }
+                                        ]
+                                    }
+                                },
+                                "dataSources": {},
+                                "destinations": {
+                                    "logAnalytics": [
+                                        {
+                                            "workspaceResourceId": "[variables('workspaceResourceId')]",
+                                            "name": "clv2ws1"
+                                        }
+                                    ]
+                                },
+                                "dataFlows": [
+                                    {
+                                        "streams": [
+                                            "Custom-SentinelOneUAM_CL"
+                                        ],
+                                        "destinations": [
+                                            "clv2ws1"
+                                        ],
+                                        "transformKql": "source\n| extend \n    TimeGenerated = todatetime(detectedAt),\n    AlertName = ['name'],\n    AlertID = ['id'],\n    DetectedAt = ['detectedAt'],\n    CreatedAt = ['createdAt'],\n    UpdatedAt = ['updatedAt'],\n    AlertDescription = ['description'],\n    AssigneeName = tostring(assignee.fullName),\n    AssigneeEmail = tostring(assignee.email),\n    PrimaryIndicatorType = ['primaryIndicatorType'],\n    Severity = ['severity'],\n    Status = ['status'],\n    AlertResult = ['result'],\n    AnalystVerdict = ['analystVerdict'],\n    StorylineID = ['storylineId'],\n    ExternalID = ['externalId'],\n    Classification = ['classification'],\n    ConfidenceLevel = ['confidenceLevel'],\n    Product = case(tostring(detectionSource.product) == 'CWS',\"Cloud Alert\",tostring(detectionSource.product) == 'STAR',\"Custom Alert\",tostring(detectionSource.product) == 'EDR', \"Endpoint Alert\", tostring(detectionSource.product)),\n    Vendor = tostring(detectionSource.vendor),\n    DetectionEngine = tostring(analytics.category),\n    DetectionName = tostring(analytics.name),\n    Assets = assets,\n   IPv4 = tostring(detectionTime.asset.ipV4Addresses),\n    IPv6 = tostring(detectionTime.asset.ipV6Addresses),\n    AttackerHost = tostring(detectionTime.attacker.host),\n    AttackerIP = tostring(detectionTime.attacker.ip), \n    AccountName = tostring(detectionTime.scope.accountName),\n    GroupName = tostring(detectionTime.scope.groupName),\n    SiteName = tostring(detectionTime.scope.siteName),\n    TargetUser = tostring(detectionTime.targetUser),\n    Cloud = tostring(detectionTime.cloud),\n    Kubernetes = tostring(detectionTime.kubernetes),\n    MitigationDetails = tostring(mitigationDetails),\n    ProcessCmdLine = tostring(process.cmdLine),\n    ProcessParentName = tostring(process.parentName),\n    ProcessName = tostring(process.file.name),\n    ProcessPath = tostring(process.file.path),\n    Sha1 = tostring(process.file.sha1),\n    Sha256 = tostring(process.file.sha256),\n    Md5 = tostring(process.file.md5),\n    CertSubject = tostring(process.file.certSubject),\n    AttackSurfaces = tostring(attackSurfaces)\n| project-away name, id, detectedAt, createdAt, updatedAt, description, primaryIndicatorType, severity, status, result, analystVerdict, storylineId, assignee, externalId,classification, confidenceLevel, attackPathExists,  detectionSource, analytics, aiInvestigation, assets, availableActions, dataSources, detectionTime, firstSeenAt, labels, lastSeenAt, mitigationDetails, noteExists, attackPaths, exclusionHashes, realTime, attackSurfaces, incident, resolveData, ticketId, sloDetails, process\n",
+                                        "outputStream": "Custom-SentinelOneUAM_CL"
+                                    }
+                                ]
+							}
+                        },
+                        {
+                            "name": "[variables('_logAnalyticsTableId1')]",
+                            "apiVersion": "2022-10-01",
+                            "type": "Microsoft.OperationalInsights/workspaces/tables",
+                            "location": "[parameters('workspace-location')]",
+                            "kind": null,
+                            "properties": 
+							{
+								// Enter your log analytics table schema here. 
+                                //  Consider using this variable for the name property:
+                                //  "name": "[variables('_logAnalyticsTableId1')]",
+                                "retentionInDays": 90,
+                                "schema": {
+                                    "name": "[variables('_logAnalyticsTableId1')]",
+                                    "description": "SentinelOne Unified Alert Management alerts collected from the SentinelOne GraphQL API",
+                                    "columns": [
+                                        {
+                                            "name": "TimeGenerated",
+                                            "type": "datetime",
+                                            "description": "The timestamp (in UTC) when the log entry was generated."
+                                        },
+                                        {
+                                            "name": "AlertID",
+                                            "type": "string",
+                                            "description": "Unique identifier of the unified alert.",
+                                            "dataTypeHint": "GUID"
+                                        },
+                                        {
+                                            "name": "AlertName",
+                                            "type": "string",
+                                            "description": "Human-readable alert name."
+                                        },
+                                        {
+                                            "name": "AlertDescription",
+                                            "type": "string",
+                                            "description": "Description of the alert."
+                                        },
+                                        {
+                                            "name": "PrimaryIndicatorType",
+                                            "type": "string",   
+                                            "description": "The primary indicator type associated with the alert."
+                                        },
+                                        {
+                                            "name": "DetectedAt",
+                                            "type": "datetime",
+                                            "description": "Time the alert was detected."
+                                        },
+                                        {
+                                            "name": "CreatedAt",
+                                            "type": "datetime",
+                                            "description": "Time the alert was created."
+                                        },
+                                        {
+                                            "name": "UpdatedAt",
+                                            "type": "datetime",
+                                            "description": "Time the alert was last updated."
+                                        },
+                                        {
+                                            "name": "Status",
+                                            "type": "string",
+                                            "description": "Current status of the alert."
+                                        },
+                                        {
+                                            "name": "Severity",
+                                            "type": "string",
+                                            "description": "Severity of the alert."
+                                        },
+                                        {
+                                            "name": "AlertResult",
+                                            "type": "string",
+                                            "description": "Result of the alert."
+                                        },
+                                        {
+                                            "name": "AnalystVerdict",
+                                            "type": "string",
+                                            "description": "Analyst verdict assigned to the alert."
+                                        },
+                                        {
+                                            "name": "ExternalID",
+                                            "type": "string",
+                                            "description": "External identifier of the alert."
+                                        },
+                                        {
+                                            "name": "StorylineID",
+                                            "type": "string",
+                                            "description": "Associated storyline identifier."
+                                        },
+                                        {
+                                            "name": "AttackSurfaces",
+                                            "type": "dynamic",
+                                            "description": "Attack surfaces associated with the alert."
+                                        },
+                                        {
+                                            "name": "ConfidenceLevel",
+                                            "type": "string",
+                                            "description": "Confidence level of the detection."
+                                        },
+                                        {
+                                            "name": "Classification",
+                                            "type": "string",
+                                            "description": "Classification of the alert."
+                                        },
+                                        {
+                                            "name": "Product",
+                                            "type": "string",
+                                            "description": "Detection source product."
+                                        },
+                                        {
+                                            "name": "Vendor",
+                                            "type": "string",
+                                            "description": "Detection source vendor."
+                                        },
+                                        {
+                                            "name": "DetectionEngine",
+                                            "type": "string",
+                                            "description": "The detection engine used for the alert."
+                                        },
+                                        {
+                                            "name": "DetectionName",
+                                            "type": "string",
+                                            "description": "The name of the detection associated with the alert."
+                                        },
+                                        {
+                                            "name": "AssigneeName",
+                                            "type": "string",
+                                            "description": "Full name of the assignee."
+                                        },
+                                        {
+                                            "name": "AssigneeEmail",
+                                            "type": "string",
+                                            "description": "Email of the assignee."
+                                        },
+                                        {
+                                            "name": "Assets",
+                                            "type": "dynamic",
+                                            "description": "Assets associated with the alert."
+                                        },
+                                        {
+                                            "name": "IPv4",
+                                            "type": "string",
+                                            "description": "The IPv4 addresses associated with the assets."
+                                        },
+                                        {
+                                            "name": "IPv6",
+                                            "type": "string",
+                                            "description": "The IPv6 addresses associated with the assets."
+                                        },
+                                        {
+                                            "name": "AttackerHost",
+                                            "type": "string",
+                                            "description": "The host associated with the attacker."
+                                        },
+                                        {
+                                            "name": "AttackerIP",
+                                            "type": "string",
+                                            "description": "The IP address associated with the attacker."
+                                        },
+                                        {
+                                            "name": "AccountName",
+                                            "type": "string",
+                                            "description": "The account name associated with the alert."
+                                        },
+                                        {
+                                            "name": "GroupName",
+                                            "type": "string",
+                                            "description": "The group name associated with the alert."
+                                        },
+                                        {
+                                            "name": "SiteName",
+                                            "type": "string",
+                                            "description": "The site name associated with the alert."
+                                        },
+                                        {
+                                            "name": "TargetUser",
+                                            "type": "dynamic",
+                                            "description": "The target user associated with the alert."
+                                        },
+                                        {
+                                            "name": "Cloud",
+                                            "type": "string",
+                                            "description": "Cloud-related information associated with the alert."
+                                        },
+                                        {
+                                            "name": "Kubernetes",
+                                            "type": "string",
+                                            "description": "Kubernetes-related information associated with the alert."
+                                        },
+                                        {
+                                            "name": "MitigationDetails",
+                                            "type": "dynamic",
+                                            "description": "Mitigation details associated with the alert."       
+                                        },
+                                        {
+                                            "name": "ProcessCmdLine",
+                                            "type": "string",
+                                            "description": "Command line of the process associated with the alert."
+                                        },
+                                        {
+                                            "name": "ProcessParentName",
+                                            "type": "string",
+                                            "description": "Parent process name associated with the alert."
+                                        },
+                                        {
+                                            "name": "ProcessName",
+                                            "type": "string",
+                                            "description": "Name of the process associated with the alert."
+                                        },
+                                        {
+                                            "name": "ProcessPath",
+                                            "type": "string",
+                                            "description": "Path of the process associated with the alert."
+                                        },
+                                        {
+                                            "name": "Sha1",
+                                            "type": "string",
+                                            "description": "SHA-1 hash of the process file associated with the alert."
+                                        },
+                                        {
+                                            "name": "Sha256",
+                                            "type": "string",
+                                            "description": "SHA-256 hash of the process file associated with the alert."
+                                        },
+                                        {
+                                            "name": "Md5",
+                                            "type": "string",
+                                            "description": "MD5 hash of the process file associated with the alert."
+                                        },
+                                        {
+                                            "name": "CertSubject",
+                                            "type": "string",
+                                            "description": "Certificate subject of the process file associated with the alert."
+                                        },
+                                        {
+                                            "name": "DataSources",
+                                            "type": "dynamic",
+                                            "description": "Data sources associated with the alert."
+                                        }
+                                    ]
+                                }    
+							}			
+                        }
+						// Enter more tables if needed.
+                    ]
+                },
+                "packageKind": "Solution",
+                "packageVersion": "[variables('_solutionVersion')]",
+                "packageName": "[variables('_solutionName')]",
+                "contentProductId": "[concat(substring(variables('_solutionId'), 0, 50),'-','dc','-', uniqueString(concat(variables('_solutionId'),'-','DataConnector','-',variables('_dataConnectorContentIdConnectorDefinition'),'-', variables('dataConnectorVersionConnectorDefinition'))))]",
+                "packageId": "[variables('_solutionId')]",
+                "contentSchemaVersion": "3.0.0",
+                "version": "[variables('_solutionVersion')]"
+            }
+        },
+        // resource 2 section here
+        // resource section 2 - dataConnectorDefinitions
+        {
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/',variables('_dataConnectorContentIdConnectorDefinition'))]",
+            "apiVersion": "2022-09-01-preview",
+            "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectorDefinitions",
+            "location": "[parameters('workspace-location')]",
+            "kind": "Customizable",
+            "properties": 
+			{
+				//Enter your data connector definition properties here
+				"connectorUiConfig": {
+                    "id": "[variables('_dataConnectorContentIdConnectorDefinition')]",
+                    "title" : "SentinelOne Unified Alerts(via Codeless Connector Framework)",
+                    "publisher" : "[variables('_solutionAuthor')]",
+                    "descriptionMarkdown" : "The SentinelOne Custom data connector ingests Security Alerts from the SentinelOne Unified Alert Management (UAM) GraphQL API, into Microsoft Sentinel. It is built on the Microsoft Sentinel Codeless Connector Platform and uses DCR-based ingestion-time transformations. See: [SentinelOne UAM GraphQL API](https://usea1-partners.sentinelone.net/soc-docs/en/unified-alert-management-graphql-api.html)",
+                    "graphQueriesTableName" : "[variables('_logAnalyticsTableId1')]",
+                    "graphQueries" : [
+                        {
+                            "metricName": "Total alerts received",
+                            "legend": "SentinelOne Unified Alerts",
+                            "baseQuery": "[variables('_logAnalyticsTableId1')]"
+                        }
+                    ],
+                    "sampleQueries" : [
+                        {
+                            "description": "Get sample of SentinelOne Unified Alerts",
+                            "query": "[variables('_logAnalyticsTableId1')] | take 10"
+                        }
+                    ],
+                    "dataTypes" : [
+                        {
+                            "name": "[variables('_logAnalyticsTableId1')]",
+                            "lastDataReceivedQuery": "[variables('_logAnalyticsTableId1')]\n| where TimeGenerated > ago(12h)\n| summarize Time = max(TimeGenerated)\n| where isnotempty(Time)"
+                        }
+                    ],
+                    "connectivityCriteria" :[
+                        {
+                            "type" : "HasDataConnectors"
+                        }
+                    ],
+                    "permissions" : {
+                        "resourceProvider" : [
+                            {
+                                "provider": "Microsoft.OperationalInsights/workspaces",
+                                "permissionsDisplayText": "Read and Write permissions are required.",
+                                "providerDisplayName": "Workspace",
+                                "scope": "Workspace",
+                                "requiredPermissions": {
+                                    "write": true,
+                                    "read": true,
+                                    "delete": true,
+                                    "action": false
+                                }
+                            }
+                        ]
+                    },
+                    "instructionSteps" : [
+                        {
+                            "title": "Connect SentinelOne to Microsoft Sentinel",
+                            "description": "Configure your SentinelOne API connection. Each instance corresponds to a single SentinelOne Management URL + API Token.",
+                            "instructions" : [
+                                {
+                                    "type": "Markdown",
+                                    "parameters": {
+                                    "content": "#### Configuration steps for the SentinelOne API\nFollow the instructions below to obtain the credentials. Alerts are collected via the [SentinelOne Unified Alert Management GraphQL API](https://usea1-partners.sentinelone.net/soc-docs/en/unified-alert-management-graphql-api.html)."
+                                    }
+                                },
+                                {
+                                    "type": "Markdown",
+                                    "parameters": {
+                                    "content": "#### 1. Retrieve SentinelOne Management URL\n   1.1. Log in to the SentinelOne **Management Console** with Admin user credentials.\n   1.2. In the **Management Console** copy the URL link without the URL path."
+                                    }
+                                },
+                                {
+                                    "type": "Markdown",
+                                    "parameters": {
+                                    "content": "#### 2. Retrieve API Token\n   2.1. Log in to the SentinelOne **Management Console** with Admin user credentials.\n   2.2. In the **Management Console**, click **Settings**.\n   2.3. In **Settings** view click on **USERS**.\n   2.4. In the **USERS** page click on **Service Users** -> **Actions** -> **Create new service user**.\n   2.5. Choose **Expiration date** and **scope** (by site) and click on **Create User**.\n   2.6. Once the **Service User** is created copy the **API Token** from the page and press **Save**."
+                                    }
+                                },
+                                {
+                                    "type": "Markdown",
+                                    "parameters": {
+                                    "content": "#### 3. Connect new instances\nTo enable the SentinelOne connector for Microsoft Sentinel, click the **Add new instance** button, fill in the required information in the context pane and click on **Connect**."
+                                    }
+                                },
+                                {
+                                    "type": "DataConnectorsGrid",
+                                    "parameters": {
+                                    "mapping": [
+                                        {
+                                            "columnName": "Management URL",
+                                            "columnValue": "properties.addOnAttributes.managementUrl"
+                                        },
+                                        {
+                                            "columnName": "Data Type",
+                                            "columnValue": "properties.addOnAttributes.dataType"
+                                        }
+                                    ],
+                                    "menuItems": [
+                                        "DeleteConnector"
+                                        ]
+                                    }
+                                },
+                                {
+                                    "type" : "ContextPane",
+                                    "parameters": {
+                                        "label": "Add new instance",
+                                        "title": "SentinelOne connector",
+                                        "subtitle": "Add new instance",
+                                        "contextPaneType": "DataConnectorsContextPane",
+                                        "instructionSteps":[
+                                            {
+                                                "instructions": [
+                                                    {
+                                                        "type": "Textbox",
+                                                        "parameters": {
+                                                            "label": "SentinelOne Management URL",
+                                                            "placeholder": "https://example.sentinelone.net",
+                                                            "type": "text",
+                                                            "name": "managementUrl",
+                                                            "validations": {
+                                                                "required": true
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        "type": "Textbox",
+                                                        "parameters": {
+                                                            "label": "API Token",
+                                                            "placeholder": "API Token",
+                                                            "type": "password",
+                                                            "name": "apitoken",
+                                                            "validations": {
+                                                                "required": true
+                                                            }
+                                                        }
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                } 
+			}
+        },
+        // resource 3 section here
+        // resource section 3 - metadata
+        {
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/',concat('DataConnector-', variables('_dataConnectorContentIdConnectorDefinition')))]",
+            "apiVersion": "2022-01-01-preview",
+            "type": "Microsoft.OperationalInsights/workspaces/providers/metadata",
+            "properties": {
+                "parentId": "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspace')), 'Microsoft.SecurityInsights/dataConnectorDefinitions', variables('_dataConnectorContentIdConnectorDefinition'))]",
+                "contentId": "[variables('_dataConnectorContentIdConnectorDefinition')]",
+                "kind": "DataConnector",
+                "version": "[variables('dataConnectorVersionConnectorDefinition')]",
+                "source": {
+                    "sourceId": "[variables('_solutionId')]",
+                    "name": "[variables('_solutionName')]",
+                    "kind": "Solution"
+                },
+                "author": {
+                    "name": "[variables('_solutionAuthor')]"
+                },
+                "support": {
+                    "name": "[variables('_solutionAuthor')]",
+                    "tier": "[variables('_solutionTier')]"
+                },
+                "dependencies": {
+                    "criteria": [
+                        {
+                            "version": "[variables('dataConnectorVersionConnections')]",
+                            "contentId": "[variables('_dataConnectorContentIdConnections')]",
+                            "kind": "ResourcesDataConnector"
+                        }
+                    ]
+                }
+            }
+        },
+        // resource 4 section here
+        // resource section 4 - contentTemplates
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/providers/contentTemplates",
+            "apiVersion": "2023-04-01-preview",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/', variables('dataConnectorTemplateNameConnections'), variables('dataConnectorVersionConnections'))]",
+            "location": "[parameters('workspace-location')]",
+            "dependsOn": [
+                "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspace')), 'Microsoft.SecurityInsights/contentPackages', variables('_solutionId'))]"
+            ],
+            "properties": {
+                "contentId": "[variables('_dataConnectorContentIdConnections')]",
+                "displayName": "[concat(variables('_solutionName'), variables('dataConnectorTemplateNameConnections'))]",
+                "contentKind": "ResourcesDataConnector",
+                "mainTemplate": {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                    "contentVersion": "[variables('dataConnectorVersionConnections')]",
+                    "parameters":
+                    // These parameters are used by the data connector primarily as properties for the administrator to enter in the UI when configuring the connector
+					{
+                        "connectorDefinitionName": {
+                            "defaultValue": "SentinelOneUAMConnector",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "workspace": {
+                            "defaultValue": "[parameters('workspace')]",
+                            "type": "string"
+                        },
+                        "dcrConfig": {
+                            "defaultValue": {
+                                "dataCollectionEndpoint": "data collection Endpoint",
+                                "dataCollectionRuleImmutableId": "data collection rule immutableId"
+                            },
+                            "type": "object"
+                        },
+						// Enter additional parameters, for example:
+						"managementUrl": {
+                            "defaultValue": "URL of the SentinelOne Management Console",
+                            "type": "string",
+                            "minLength": 1
+                        },
+                        "apitoken": {
+                            "defaultValue": "",
+                            "type": "securestring",
+                            "minLength": 1
+                        }
+                    },
+                    "variables": {
+                        "_dataConnectorContentIdConnections": "[variables('_dataConnectorContentIdConnections')]"
+                    },
+                    "resources": [
+                        {
+                            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/',concat('DataConnector-', variables('_dataConnectorContentIdConnections')))]",
+                            "apiVersion": "2022-01-01-preview",
+                            "type": "Microsoft.OperationalInsights/workspaces/providers/metadata",
+                            "properties": {
+                                "parentId": "[extensionResourceId(resourceId('Microsoft.OperationalInsights/workspaces', parameters('workspace')), 'Microsoft.SecurityInsights/dataConnectors', variables('_dataConnectorContentIdConnections'))]",
+                                "contentId": "[variables('_dataConnectorContentIdConnections')]",
+                                "kind": "ResourcesDataConnector",
+                                "version": "[variables('dataConnectorVersionConnections')]",
+                                "source": {
+                                    "sourceId": "[variables('_solutionId')]",
+                                    "name": "[variables('_solutionName')]",
+                                    "kind": "Solution"
+                                },
+                                "author": {
+                                    "name": "[variables('_solutionAuthor')]"
+                                },
+                                "support": {
+                                    "name": "[variables('_solutionAuthor')]",
+                                    "tier": "[variables('_solutionTier')]"
+                                }
+                            }
+                        },
+                        {
+                            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/', 'SentinelOneUAMConnector')]", // Replace the last part of the name with your data connector name
+                            //  To create several connections using this template, make the name dynamic. For example, use the 'concat' function to add the connector name with a GUID using the 'guid' function.
+                            "apiVersion": "2022-12-01-preview",
+                            "type": "Microsoft.OperationalInsights/workspaces/providers/dataConnectors",
+                            "location": "[parameters('workspace-location')]",
+                            "kind": "RestApiPoller",
+                            "properties": 
+							{
+                                "auth": {
+                                    "type": "APIKey",
+                                    "ApiKey": "[[parameters('apitoken')]", 
+                                    "ApiKeyName": "Authorization",
+                                    "ApiKeyIdentifier": "ApiToken"
+                                },
+                                "request": {
+                                    "apiEndpoint": "[[concat(parameters('managementUrl'), '/web/api/','v2.1', '/', 'unifiedalerts/graphql')]",
+                                    "httpMethod": "POST",
+                                    "rateLimitQPS": 10,
+                                    "queryWindowInMin": 5,
+                                    "queryTimeFormat": "UnixTimestampInMills",
+                                    "retryCount": 3,
+                                    "timeoutInSeconds": 30,
+                                    "isPostPayloadJson": true,
+                                    "headers": {
+                                    "Accept": "application/json",
+                                    "Content-Type": "application/json",
+                                    "User-Agent": "Scuba"
+                                    },
+                                    "queryParametersTemplate": "{\"query\":\"query listAlertsAll($filters:[FilterInput!],$sort:SortInput,$first:Int,$after:String){alerts(filters:$filters,sort:$sort,first:$first,after:$after){totalCount edges{cursor node{id externalId name description detectedAt createdAt updatedAt firstSeenAt lastSeenAt status severity analystVerdict result classification confidenceLevel attackSurfaces labels storylineId primaryIndicatorType ticketId noteExists dataSources detectionSource{product vendor} analytics{category name type typeValue uid} assignee{userId fullName email} incident{id name} resolveData{resolvedAt resolvedDuration} sloDetails{timeToResponseData{actionComplete actionDue completion completionTime status target targetTime} timeToResolveData{actionComplete actionDue completion completionTime status target targetTime}} aiInvestigation{autoTriggered purpleAiStatus status timestamp verdict} attackPathExists attackPaths{id name} availableActions{id disabledReason} exclusionHashes{sha1 sha256} mitigationDetails{reports{mitigationActionType successCount initiatedBy{... on InitiatedByUserType{userId fullName userType}}}} realTime{scope{account{id name} group{id name} site{id name}}} assets{id name category subcategory role primary status accessible deleted decommissioned pendingReboot origin agentUuid agentVersion agentOperatingMode connectivityToConsole lastLoggedInUser osType osVersion policy assetTypeClassifier tags{key keyValue value type}} detectionTime{scope{accountId accountName siteId siteName groupId groupName} asset{agentVersion consoleIpAddress domain ipV4 ipV4Addresses ipV6 ipV6Addresses lastLoggedInUser osName osRevision osType policy subscriptionTime} attacker{host ip} targetUser{name displayName domain emailAddress} cloud{accountId cloudProvider image instanceId instanceSize location network tags providerDetails{__typename}} kubernetes{clusterName namespaceName nodeName podName containerId containerName containerImageName containerLabels controllerName controllerType controllerLabels namespaceLabels nodeLabels podLabels}} process{cmdLine parentName file{name path sha1 sha256 md5 certSubject}}}}pageInfo{hasNextPage hasPreviousPage startCursor endCursor}}}\",\"variables\":{\"filters\":[{\"fieldId\":\"detectedAt\",\"dateTimeRange\":{\"start\":{_QueryWindowStartTime},\"end\":{_QueryWindowEndTime}}}],\"sort\":{\"by\":\"detectedAt\",\"order\":\"DESC\"},\"first\":1000}}"
+                                },
+                                "response": {
+                                    "eventsJsonPaths": [
+                                    "$.data.alerts.edges[*].node"
+                                    ],
+                                    "format": "json"
+                                },
+                                "paging": {
+                                    "pagingType": "NextPageToken",
+                                    "nextPageTokenJsonPath": "$.data.alerts.pageInfo.endCursor",
+                                    "NextPageParaName": "$.variables.after",
+                                    "hasNextFlagJsonPath": "$.data.alerts.pageInfo.hasNextPage",
+                                    "pageSize": 1000,
+                                    "pagingInfoPlacement": "RequestBody"
+                                },
+                                "connectorDefinitionName": "[[parameters('connectorDefinitionName')]",
+                                "dataType": "SentinelOneUAM_CL",
+                                "dcrConfig": {
+                                    "streamName": "Custom-SentinelOneUAM_CL", //Custom-SentinelOneUAM_CL
+                                    "dataCollectionEndpoint": "[[parameters('dcrConfig').dataCollectionEndpoint]",
+                                    "dataCollectionRuleImmutableId": "[[parameters('dcrConfig').dataCollectionRuleImmutableId]" 
+                                },
+                                "isActive": true,
+                                "addOnAttributes": {
+                                    "managementUrl": "[[parameters('managementUrl')]",
+                                    "dataType": "Unified Alerts (V1)"
+                                }
+                            }
+                        }
+                    ]
+                },
+                "packageKind": "Solution",
+                "packageVersion": "[variables('_solutionVersion')]",
+                "packageName": "[variables('_solutionName')]",
+                "contentProductId": "[concat(substring(variables('_solutionId'), 0, 50),'-','rdc','-', uniqueString(concat(variables('_solutionId'),'-','ResourcesDataConnector','-',variables('_dataConnectorContentIdConnections'),'-', variables('dataConnectorVersionConnections'))))]",
+                "packageId": "[variables('_solutionId')]",
+                "contentSchemaVersion": "3.0.0",
+                "version": "[variables('_solutionVersion')]"
+            }
+        },
+        // resource 5 section here
+        // resource section 5 - contentPackages
+        {
+            "type": "Microsoft.OperationalInsights/workspaces/providers/contentPackages",
+            "name": "[concat(parameters('workspace'),'/Microsoft.SecurityInsights/', variables('_solutionId'))]",
+            "location": "[parameters('workspace-location')]",
+            "apiVersion": "2023-04-01-preview",
+            "properties": {
+                "version": "[variables('_solutionVersion')]",
+                "kind": "Solution",
+                "contentSchemaVersion": "3.0.0",
+                "contentId": "[variables('_solutionId')]",
+                "source": {
+                    "kind": "Solution",
+                    "name": "[variables('_solutionName')]",
+                    "sourceId": "[variables('_solutionId')]"
+                },
+                "author": {
+                    "name": "[variables('_solutionAuthor')]"
+                },
+                "support": {
+                    "name": "[variables('_solutionAuthor')]"
+                },
+                "dependencies": {
+                    "operator": "AND",
+                    "criteria": [
+                        {
+                            "kind": "DataConnector",
+                            "contentId": "[variables('_dataConnectorContentIdConnectorDefinition')]",
+                            "version": "[variables('dataConnectorVersionConnectorDefinition')]"
+                        }
+                    ]
+                },
+                "firstPublishDate": "2026-11-03",
+                "providers": [
+                    "SentinelOne"
+                ],
+                "contentKind": "Solution",
+                "packageId": "[variables('_solutionId')]",
+                "contentProductId": "[concat(substring(variables('_solutionId'), 0, 50),'-','sl','-', uniqueString(concat(variables('_solutionId'),'-','Solution','-',variables('_solutionId'),'-', variables('_solutionVersion'))))]",
+                "displayName": "[variables('_solutionName')]",
+                "publisherDisplayName": "[variables('_solutionAuthor')]",
+                "descriptionHtml": "test",
+                "icon": "[variables('_packageIcon')]"
+            }
+        }
+        
+    ]
+}
